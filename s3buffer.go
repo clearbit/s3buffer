@@ -47,10 +47,22 @@ func NewBuffer(name, prefix, bucket, header string) *Buffer {
 
 func (b *Buffer) reset() {
 	if b.tmpfile != nil {
-		os.Remove(b.tmpfile.Name())
+		log.Println("Removing %v", b.tmpfile.Name())
+
+		b.tmpfile.Close()
+		err := os.Remove(b.tmpfile.Name())
+
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	b.tmpfile, _ = ioutil.TempFile("", "s3buffer")
+	var err error
+	b.tmpfile, err = ioutil.TempFile("", "s3buffer")
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	if b.Header != "" {
 		b.tmpfile.WriteString(b.Header)
