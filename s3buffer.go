@@ -5,8 +5,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/twinj/uuid"
 	"os"
-	"time"
 	"io/ioutil"
 	"log"
 )
@@ -20,19 +20,17 @@ type Buffer struct {
 	MaxSize int64
 	Bucket  string
 	Header  string
-	Prefix  string
 	tmpfile *os.File
 	svc *session.Session
 	uploader *s3manager.Uploader
 }
 
-func NewBuffer(name, prefix, bucket, header string) *Buffer {
+func NewBuffer(name, bucket, header string) *Buffer {
 	svc := session.New(aws.NewConfig().WithMaxRetries(10))
 	uploader := s3manager.NewUploader(svc)
 
 	buffer := &Buffer{
 		Name:     name,
-		Prefix:   prefix,
 		Bucket:   bucket,
 		Header:   header,
 		MaxSize:  maxSize,
@@ -105,8 +103,7 @@ func (b *Buffer) Len() int64 {
 }
 
 func (b *Buffer) Flush() {
-	stamp := time.Now().Unix()
-	name := fmt.Sprintf("%v/%v%v", b.Name, b.Prefix, stamp)
+	name := fmt.Sprintf("%v/%v", b.Name, uuid.NewV4())
 	b.upload(name)
 	b.reset()
 }
