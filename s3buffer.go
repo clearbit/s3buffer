@@ -1,42 +1,72 @@
 package s3buffer
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
-	"io"
 	"os"
 	"time"
+	"io/ioutil"
+	"log"
 )
 
 const (
-	maxSize = 100 * 1000000
+	maxSize = 20 * 1000000
 )
 
 type Buffer struct {
 	Name    string
-	MaxSize int
+	MaxSize int64
 	Bucket  string
-	buffer  *bytes.Buffer
+	Header  string
+	Prefix  string
+	tmpfile *os.File
+	svc *session.Session
+	uploader *s3manager.Uploader
 }
 
-func NewBuffer(name, bucket string) *Buffer {
-	return &Buffer{
-		Name:    name,
-		Bucket:  bucket,
-		MaxSize: maxSize,
-		buffer:  new(bytes.Buffer),
+func NewBuffer(name, prefix, bucket, header string) *Buffer {
+	svc := session.New(aws.NewConfig().WithMaxRetries(10))
+	uploader := s3manager.NewUploader(svc)
+
+	buffer := &Buffer{
+		Name:     name,
+		Prefix:   prefix,
+		Bucket:   bucket,
+		Header:   header,
+		MaxSize:  maxSize,
+		svc:      svc,
+		uploader: uploader,
+	}
+
+	buffer.reset()
+
+	return buffer
+}
+
+func (b *Buffer) reset() {
+	if b.tmpfile != nil {
+		os.Remove(b.tmpfile.Name())
+	}
+
+	b.tmpfile, _ = ioutil.TempFile("", "s3buffer")
+
+	if b.Header != "" {
+		b.tmpfile.WriteString(b.Header)
 	}
 }
 
+func (b *Buffer) WriteString(str string) {
+	b.tmpfile.WriteString(str)
+}
+
 func (b *Buffer) WriteLine(line string) {
-	b.Write([]byte(line + "\n"))
+	b.WriteString(line + "\n")
 }
 
 func (b *Buffer) Write(data []byte) (int, error) {
-	n, err := b.buffer.Write(data)
+	n, err := b.tmpfile.Write(data)
 	b.checkFlush()
 
 	return n, err
@@ -49,34 +79,36 @@ func (b *Buffer) checkFlush() {
 }
 
 func (b *Buffer) ShouldFlush() bool {
-	return b.buffer.Len() >= b.MaxSize
+	return b.Len() >= b.MaxSize
+}
+
+func (b *Buffer) Len() int64 {
+	fi, err := b.tmpfile.Stat()
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return fi.Size()
 }
 
 func (b *Buffer) Flush() {
 	stamp := time.Now().Unix()
-	name := fmt.Sprintf("%v/%v", b.Name, stamp)
-
-	reader := bytes.NewReader(b.buffer.Bytes())
-	b.buffer = new(bytes.Buffer)
-
-	go b.upload(name, reader)
+	name := fmt.Sprintf("%v/%v%v", b.Name, b.Prefix, stamp)
+	b.upload(name)
+	b.reset()
 }
 
-func (b *Buffer) upload(name string, buffer io.Reader) {
-	svc := session.New(aws.NewConfig().WithMaxRetries(10))
-
-	uploader := s3manager.NewUploader(svc)
-
+func (b *Buffer) upload(name string) {
 	upParams := &s3manager.UploadInput{
 		Bucket: aws.String(b.Bucket),
 		Key:    aws.String(name),
-		Body:   buffer,
+		Body:   b.tmpfile,
 	}
 
-	_, err := uploader.Upload(upParams)
+	_, err := b.uploader.Upload(upParams)
 
 	if err != nil {
-		fmt.Printf("error %s\n", err)
-		os.Exit(1)
+		log.Fatal("error %v\n", err)
 	}
 }
