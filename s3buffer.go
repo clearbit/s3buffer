@@ -7,7 +7,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/twinj/uuid"
 	"os"
-	"io/ioutil"
 	"log"
 )
 
@@ -20,7 +19,7 @@ type Buffer struct {
 	MaxSize int64
 	Bucket  string
 	Header  string
-	tmpfile *os.File
+	buffer  *bytes.Buffer
 	svc *session.Session
 	uploader *s3manager.Uploader
 }
@@ -44,29 +43,15 @@ func NewBuffer(name, bucket, header string) *Buffer {
 }
 
 func (b *Buffer) reset() {
-	if b.tmpfile != nil {
-		b.tmpfile.Close()
-		err := os.Remove(b.tmpfile.Name())
-
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	var err error
-	b.tmpfile, err = ioutil.TempFile("", "s3buffer")
-
-	if err != nil {
-		log.Fatal(err)
-	}
+	b.buffer = new(bytes.Buffer)
 
 	if b.Header != "" {
-		b.tmpfile.WriteString(b.Header)
+		b.buffer.WriteString(b.Header)
 	}
 }
 
 func (b *Buffer) WriteString(str string) {
-	b.tmpfile.WriteString(str)
+	b.buffer.WriteString(str)
 }
 
 func (b *Buffer) WriteLine(line string) {
@@ -74,7 +59,7 @@ func (b *Buffer) WriteLine(line string) {
 }
 
 func (b *Buffer) Write(data []byte) (int, error) {
-	n, err := b.tmpfile.Write(data)
+	n, err := b.buffer.Write(data)
 	b.checkFlush()
 
 	return n, err
@@ -87,17 +72,7 @@ func (b *Buffer) checkFlush() {
 }
 
 func (b *Buffer) ShouldFlush() bool {
-	return b.Len() >= b.MaxSize
-}
-
-func (b *Buffer) Len() int64 {
-	fi, err := b.tmpfile.Stat()
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return fi.Size()
+	return b.buffer.Len() >= b.MaxSize
 }
 
 func (b *Buffer) Flush() {
@@ -107,10 +82,12 @@ func (b *Buffer) Flush() {
 }
 
 func (b *Buffer) upload(name string) {
+	reader := bytes.NewReader(b.buffer.Bytes())
+
 	upParams := &s3manager.UploadInput{
 		Bucket: aws.String(b.Bucket),
 		Key:    aws.String(name),
-		Body:   b.tmpfile,
+		Body:   reader,
 	}
 
 	_, err := b.uploader.Upload(upParams)
