@@ -45,8 +45,6 @@ func NewBuffer(name, bucket, header string) *Buffer {
 
 func (b *Buffer) reset() {
 	if b.tmpfile != nil {
-		log.Println("Removing %v", b.tmpfile.Name())
-
 		b.tmpfile.Close()
 		err := os.Remove(b.tmpfile.Name())
 
@@ -109,15 +107,15 @@ func (b *Buffer) Flush() {
 }
 
 func (b *Buffer) upload(name string) {
-	upParams := &s3manager.UploadInput{
-		Bucket: aws.String(b.Bucket),
-		Key:    aws.String(name),
-		Body:   b.tmpfile,
-	}
+	// upParams := &s3manager.UploadInput{
+	// 	Bucket: aws.String(b.Bucket),
+	// 	Key:    aws.String(name),
+	// 	Body:   b.tmpfile,
+	// }
 
-	_, err := b.uploader.Upload(upParams)
+	// _, err := b.uploader.Upload(upParams)
 
-	if err != nil {
-		log.Fatal("error %v\n", err)
-	}
+	// if err != nil {
+	// 	log.Fatal("error %v\n", err)
+	// }
 }
